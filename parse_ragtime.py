@@ -9,6 +9,12 @@ def _pitch2note(pitch):
 _piano_order=['la', 'la#', 'si', 'do', 'do#', 're', 're#', 'mi', 'fa', 'fa#', 'sol', 'sol#']
 _note2index = {_piano_order[i % 12] + str((i - 3) // 12):i for i in range(88)}
 
+def _pitch2index(pitch):
+    return pitch - 21  # 21 is MIDI A0
+
+def _index2pitch(index):
+    return index + 21  # max pitch is 108, MIDI C8
+    
 def _notes2vector(notes):
     keyboard = np.zeros((88), int)
     for note in notes:
@@ -39,7 +45,7 @@ def midi2numpy(midifile, outfile=None):
     print('min_tick',min_tick)
     #normalize everything subtracting the first tick and then dividing by min_tick
     notes = [(_pitch2note(pitch), (tick - first_note) // min_tick) for pitch, tick in notes]
-    print(notes)
+    # print(notes)
 
     _,last_tick = notes[-1]
 
@@ -68,4 +74,49 @@ def midi2numpy(midifile, outfile=None):
 
     return X
 
-midi2numpy('midi/sunflower.mid','np/sunflower.npy')
+
+def numpy2midi(X, midifile):
+
+    # find for each timestep the set of on-notes
+    X = [set(np.nonzero(x)[0]) for x in X]
+    
+    # prepend and append an empty step to the song
+    X.insert(0, set())
+    X.append(set())
+    
+    track = midi.Track()
+    
+    tick = 0
+    for previous, current in zip(X[:-1], X[1:]):
+        notes_to_off = previous - current  # notes in the previous but not in the current (ending notes)
+        for pitch in map(_index2pitch, notes_to_off):
+            off = midi.NoteOffEvent(tick=tick, pitch=pitch, velocity=0)  # velocity is ignored in NoteOffEvents
+            track.append(off)
+            tick = 0
+        
+        notes_to_on = current - previous  # notes in the current but not in the previous (beginning notes)
+        for pitch in map(_index2pitch, notes_to_on):
+            on = midi.NoteOnEvent(tick=tick, pitch=pitch, velocity=100)
+            track.append(on)
+            tick = 0
+        
+        tick += 60
+    
+    # end of track event
+    eot = midi.EndOfTrackEvent(tick=1)
+    track.append(eot)
+        
+    # instantiate a MIDI Pattern (contains a list of tracks)
+    pattern = midi.Pattern()
+    # append the track to the pattern
+    pattern.append(track)
+    # print out the pattern
+    print(pattern)
+    # save the pattern to disk
+    midi.write_midifile(midifile, pattern)
+    
+
+if __name__ == '__main__':
+    # midi2numpy('midi/sunflower.mid','sunflower.npy')
+    numpy2midi(np.eye(88), 'cromatica.mid')
+    # numpy2midi(np.load('sunflower.npy'), 'sunflower_reconstructed.mid')
