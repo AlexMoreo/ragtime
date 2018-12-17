@@ -86,7 +86,13 @@ def midi2numpy(midifile, outfile=None):
     return X
 
 
-def numpy2midi(X, midifile):
+def numpy2midi(X, midifile, bpm=155):
+    # pad to fill last bar (we fill to 16th)
+    padded_dim = -16 * (- X.shape[0] // 16)  # remainder of negative numbers equals to ceil() instead of floor()
+    X_padded = np.zeros((padded_dim, X.shape[1]), dtype=int)
+    X_padded[:X.shape[0], :X.shape[1]] = X
+    X = X_padded
+
     # find for each timestep the set of on-notes
     X = [set(np.nonzero(x)[0]) for x in X]
 
@@ -94,9 +100,13 @@ def numpy2midi(X, midifile):
     X.insert(0, set())
     X.append(set())
 
+    conductor = midi.Track()
+    time_sig = midi.TimeSignatureEvent(tick=0, numerator=4, denominator=4, metronome=24, thirtyseconds=8)
+    conductor.append(time_sig)
+    tempo = midi.SetTempoEvent(tick=0, bpm=bpm)
+    conductor.append(tempo)
+
     track = midi.Track()
-    time_sig = midi.TimeSignatureEvent(tick=0, numerator=2, denominator=4, metronome=24, thirtyseconds=8)
-    track.append(time_sig)
 
     tick = 0
     for previous, current in zip(X[:-1], X[1:]):
@@ -112,15 +122,17 @@ def numpy2midi(X, midifile):
             track.append(on)
             tick = 0
 
-        tick += 120
+        tick += 1
 
     # end of track event
-    eot = midi.EndOfTrackEvent(tick=1)
+    eot = midi.EndOfTrackEvent(tick=0)
+    conductor.append(eot)
     track.append(eot)
 
     # instantiate a MIDI Pattern (contains a list of tracks)
-    pattern = midi.Pattern(resolution=96)
+    pattern = midi.Pattern(resolution=4)
     # append the track to the pattern
+    pattern.append(conductor)
     pattern.append(track)
     # save the pattern to disk
     midi.write_midifile(midifile, pattern)
@@ -128,6 +140,6 @@ def numpy2midi(X, midifile):
 
 if __name__ == '__main__':
     # midi2numpy('midi/sunflower.mid') # ,'sunflower.npy')
-    # numpy2midi(midi2numpy('midi/Joplin/BreezeFromAlabama2.mid'), 'prova.mid')
-    numpy2midi(np.eye(88), 'cromatica.mid')
+    numpy2midi(midi2numpy('midi/Joplin/BreezeFromAlabama2.mid'), 'prova.mid', bpm=90)
+    # numpy2midi(np.eye(16), 'cromatica.mid')
     # numpy2midi(np.load('sunflower.npy'), 'sunflower_reconstructed.mid')
